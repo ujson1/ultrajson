@@ -16,7 +16,7 @@ if six.PY2:
 else:
     import unittest
 
-import ujson
+import ujson1 as ujson
 
 try:
     from blist import blist
