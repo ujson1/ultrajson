@@ -27,7 +27,7 @@ try:
 except(OSError):
     pass
 
-module1 = Extension('ujson',
+module1 = Extension('ujson1',
                     sources = ['./python/ujson.c', 
                                './python/objToJSON.c', 
                                './python/JSONtoObj.c', 
@@ -45,7 +45,7 @@ def get_version():
     finally:
         if file:
             file.close()
-    m = re.search(r'#define\s+UJSON_VERSION\s+"(\d+\.\d+(?:\.\d+)?)"', header)
+    m = re.search(r'#define\s+UJSON_VERSION\s+"(\d+.*?)"', header)
     assert m, "version.h must contain UJSON_VERSION macro"
     return m.group(1)
 
@@ -55,7 +55,7 @@ try:
 finally:
     f.close()    
     
-setup (name = 'ujson',
+setup (name = 'ujson1',
        version = get_version(),
        description = "Ultra fast JSON encoder and decoder for Python",
        long_description = README,

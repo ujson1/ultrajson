@@ -1,5 +1,13 @@
-UltraJSON
-=============
+ujson1
+======
+
+This is a compatibility fork of ultrajson 1.35 that is intended to coexist with
+newer versions by renaming the c extension to "ujson1".
+
+Development on mainline ultrajson 3.x has reumed in
+https://github.com/ultrajson/ultrajson and please send pull requests there
+unless they are absolutely necessary to get you OFF of 1.x.
+
 .. image:: https://travis-ci.org/esnme/ultrajson.svg?branch=master
     :target: https://travis-ci.org/esnme/ultrajson
 
