@@ -36,7 +36,7 @@ http://www.opensource.apple.com/source/tcl/tcl-14/tcl/license.terms
  * Copyright (c) 1994 Sun Microsystems, Inc.
 */
 
-#include "py_defines.h"
+#include <Python.h>
 #include <ultrajson.h>
 
 
@@ -90,7 +90,7 @@ JSOBJ Object_newArray(void *prv)
 
 JSOBJ Object_newInteger(void *prv, JSINT32 value)
 {
-  return PyInt_FromLong( (long) value);
+  return PyLong_FromLong( (long) value);
 }
 
 JSOBJ Object_newLong(void *prv, JSINT64 value)
@@ -154,7 +154,7 @@ PyObject* JSONToObj(PyObject* self, PyObject *args, PyObject *kwargs)
       decoder.preciseFloat = 1;
   }
 
-  if (PyString_Check(arg))
+  if (PyBytes_Check(arg))
   {
       sarg = arg;
   }
@@ -177,7 +177,7 @@ PyObject* JSONToObj(PyObject* self, PyObject *args, PyObject *kwargs)
   decoder.errorStr = NULL;
   decoder.errorOffset = NULL;
 
-  ret = JSON_DecodeObject(&decoder, PyString_AS_STRING(sarg), PyString_GET_SIZE(sarg));
+  ret = JSON_DecodeObject(&decoder, PyBytes_AsString(sarg), PyBytes_Size(sarg));
 
   if (sarg != arg)
   {

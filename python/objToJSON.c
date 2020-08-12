@@ -36,19 +36,18 @@ http://www.opensource.apple.com/source/tcl/tcl-14/tcl/license.terms
 * Copyright (c) 1994 Sun Microsystems, Inc.
 */
 
-#include "py_defines.h"
+#include <Python.h>
 #include <stdio.h>
-#include <datetime.h>
 #include <ultrajson.h>
 
 #define EPOCH_ORD 719163
-static PyObject* type_decimal = NULL;
 
 typedef void *(*PFN_PyTypeToJSON)(JSOBJ obj, JSONTypeContext *ti, void *outValue, size_t *_outLen);
 
-#if (PY_VERSION_HEX < 0x02050000)
-typedef ssize_t Py_ssize_t;
-#endif
+PyObject *PyDate_FromDate(int year, int month, int day);
+int object_is_datetime_type(PyObject *obj);
+int object_is_date_type(PyObject *obj);
+int object_is_decimal_type(PyObject *obj);
 
 typedef struct __TypeContext
 {
@@ -86,37 +85,6 @@ struct PyDictIterState
 //#define PRINTMARK() fprintf(stderr, "%s: MARK(%d)\n", __FILE__, __LINE__)
 #define PRINTMARK()
 
-void initObjToJSON(void)
-{
-  PyObject* mod_decimal = PyImport_ImportModule("decimal");
-  if (mod_decimal)
-  {
-    type_decimal = PyObject_GetAttrString(mod_decimal, "Decimal");
-    Py_INCREF(type_decimal);
-    Py_DECREF(mod_decimal);
-  }
-  else
-    PyErr_Clear();
-
-  PyDateTime_IMPORT;
-}
-
-#ifdef _LP64
-static void *PyIntToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
-{
-  PyObject *obj = (PyObject *) _obj;
-  *((JSINT64 *) outValue) = PyInt_AS_LONG (obj);
-  return NULL;
-}
-#else
-static void *PyIntToINT32(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
-{
-  PyObject *obj = (PyObject *) _obj;
-  *((JSINT32 *) outValue) = PyInt_AS_LONG (obj);
-  return NULL;
-}
-#endif
-
 static void *PyLongToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
 {
   *((JSINT64 *) outValue) = GET_TC(tc)->longValue;
@@ -139,15 +107,15 @@ static void *PyFloatToDOUBLE(JSOBJ _obj, JSONTypeContext *tc, void *outValue, si
 static void *PyStringToUTF8(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
 {
   PyObject *obj = (PyObject *) _obj;
-  *_outLen = PyString_GET_SIZE(obj);
-  return PyString_AS_STRING(obj);
+  *_outLen = PyBytes_Size(obj);
+  return PyBytes_AsString(obj);
 }
 
 static void *PyUnicodeToUTF8(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
 {
   PyObject *obj = (PyObject *) _obj;
   PyObject *newObj;
-#if (PY_VERSION_HEX >= 0x03030000)
+#ifndef Py_LIMITED_API
   if(PyUnicode_IS_COMPACT_ASCII(obj))
   {
     Py_ssize_t len;
@@ -164,8 +132,8 @@ static void *PyUnicodeToUTF8(JSOBJ _obj, JSONTypeContext *tc, void *outValue, si
 
   GET_TC(tc)->newObj = newObj;
 
-  *_outLen = PyString_GET_SIZE(newObj);
-  return PyString_AS_STRING(newObj);
+  *_outLen = PyBytes_Size(newObj);
+  return PyBytes_AsString(newObj);
 }
 
 static void *PyRawJSONToUTF8(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
@@ -179,6 +147,60 @@ static void *PyRawJSONToUTF8(JSOBJ _obj, JSONTypeContext *tc, void *outValue, si
   }
 }
 
+int PyDateTime_GET_YEAR(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "year");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
+int PyDateTime_GET_MONTH(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "month");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
+int PyDateTime_GET_DAY(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "day");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
+int PyDateTime_DATE_GET_HOUR(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "hour");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
+int PyDateTime_DATE_GET_MINUTE(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "minute");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
+int PyDateTime_DATE_GET_SECOND(PyObject *obj)
+{
+  PyObject *result_obj = PyObject_GetAttrString(obj, "second");
+  PyErr_Clear();
+  int result = PyLong_AsLong(result_obj);
+  Py_XDECREF(result_obj);
+  return result;
+}
+
 static void *PyDateTimeToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size_t *_outLen)
 {
   PyObject *obj = (PyObject *) _obj;
@@ -189,6 +211,7 @@ static void *PyDateTimeToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, 
   if(utcoffset != Py_None){
     obj = PyNumber_Subtract(obj, utcoffset);
   }
+  Py_DECREF(utcoffset);
 
   y = PyDateTime_GET_YEAR(obj);
   m = PyDateTime_GET_MONTH(obj);
@@ -198,8 +221,10 @@ static void *PyDateTimeToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, 
   s = PyDateTime_DATE_GET_SECOND(obj);
 
   date = PyDate_FromDate(y, m, 1);
+  assert(date != NULL);
   ord = PyObject_CallMethod(date, "toordinal", NULL);
-  days = PyInt_AS_LONG(ord) - EPOCH_ORD + d - 1;
+  assert(ord != NULL);
+  days = PyLong_AsLong(ord) - EPOCH_ORD + d - 1;
   Py_DECREF(date);
   Py_DECREF(ord);
   *( (JSINT64 *) outValue) = (((JSINT64) ((days * 24 + h) * 60 + mn)) * 60 + s);
@@ -218,7 +243,7 @@ static void *PyDateToINT64(JSOBJ _obj, JSONTypeContext *tc, void *outValue, size
 
   date = PyDate_FromDate(y, m, 1);
   ord = PyObject_CallMethod(date, "toordinal", NULL);
-  days = PyInt_AS_LONG(ord) - EPOCH_ORD + d - 1;
+  days = PyLong_AsLong(ord) - EPOCH_ORD + d - 1;
   Py_DECREF(date);
   Py_DECREF(ord);
   *( (JSINT64 *) outValue) = ((JSINT64) days * 86400);
@@ -235,7 +260,7 @@ int Tuple_iterNext(JSOBJ obj, JSONTypeContext *tc)
     return 0;
   }
 
-  item = PyTuple_GET_ITEM (obj, GET_TC(tc)->index);
+  item = PyTuple_GetItem (obj, GET_TC(tc)->index);
 
   GET_TC(tc)->itemValue = item;
   GET_TC(tc)->index ++;
@@ -348,14 +373,14 @@ int Dir_iterNext(JSOBJ _obj, JSONTypeContext *tc)
 
   for (; GET_TC(tc)->index  < GET_TC(tc)->size; GET_TC(tc)->index ++)
   {
-    attrName = PyList_GET_ITEM(GET_TC(tc)->attrList, GET_TC(tc)->index);
+    attrName = PyList_GetItem(GET_TC(tc)->attrList, GET_TC(tc)->index);
 #if PY_MAJOR_VERSION >= 3
     attr = PyUnicode_AsUTF8String(attrName);
 #else
     attr = attrName;
     Py_INCREF(attr);
 #endif
-    attrStr = PyString_AS_STRING(attr);
+    attrStr = PyBytes_AsString(attr);
 
     if (attrStr[0] == '_')
     {
@@ -410,8 +435,8 @@ JSOBJ Dir_iterGetValue(JSOBJ obj, JSONTypeContext *tc)
 char *Dir_iterGetName(JSOBJ obj, JSONTypeContext *tc, size_t *outLen)
 {
   PRINTMARK();
-  *outLen = PyString_GET_SIZE(GET_TC(tc)->itemName);
-  return PyString_AS_STRING(GET_TC(tc)->itemName);
+  *outLen = PyBytes_Size(GET_TC(tc)->itemName);
+  return PyBytes_AsString(GET_TC(tc)->itemName);
 }
 
 int List_iterNext(JSOBJ obj, JSONTypeContext *tc)
@@ -422,7 +447,7 @@ int List_iterNext(JSOBJ obj, JSONTypeContext *tc)
     return 0;
   }
 
-  GET_TC(tc)->itemValue = PyList_GET_ITEM (obj, GET_TC(tc)->index);
+  GET_TC(tc)->itemValue = PyList_GetItem (obj, GET_TC(tc)->index);
   GET_TC(tc)->index ++;
   return 1;
 }
@@ -471,7 +496,7 @@ int Dict_iterNext(JSOBJ obj, JSONTypeContext *tc)
     GET_TC(tc)->itemName = PyUnicode_AsUTF8String (GET_TC(tc)->itemName);
   }
   else
-    if (!PyString_Check(GET_TC(tc)->itemName))
+    if (!PyBytes_Check(GET_TC(tc)->itemName))
     {
       GET_TC(tc)->itemName = PyObject_Str(GET_TC(tc)->itemName);
 #if PY_MAJOR_VERSION >= 3
@@ -506,8 +531,8 @@ JSOBJ Dict_iterGetValue(JSOBJ obj, JSONTypeContext *tc)
 
 char *Dict_iterGetName(JSOBJ obj, JSONTypeContext *tc, size_t *outLen)
 {
-  *outLen = PyString_GET_SIZE(GET_TC(tc)->itemName);
-  return PyString_AS_STRING(GET_TC(tc)->itemName);
+  *outLen = PyBytes_Size(GET_TC(tc)->itemName);
+  return PyBytes_AsString(GET_TC(tc)->itemName);
 }
 
 int SortedDict_iterNext(JSOBJ obj, JSONTypeContext *tc)
@@ -541,10 +566,10 @@ int SortedDict_iterNext(JSOBJ obj, JSONTypeContext *tc)
     }
 
     // Obtain the value for each key, and pack a list of (key, value) 2-tuples.
-    nitems = PyList_GET_SIZE(items);
+    nitems = PyList_Size(items);
     for (i = 0; i < nitems; i++)
     {
-      key = PyList_GET_ITEM(items, i);
+      key = PyList_GetItem(items, i);
       value = PyDict_GetItem(GET_TC(tc)->dictObj, key);
 
       // Subject the key to the same type restrictions and conversions as in Dict_iterGetValue.
@@ -552,7 +577,7 @@ int SortedDict_iterNext(JSOBJ obj, JSONTypeContext *tc)
       {
         key = PyUnicode_AsUTF8String(key);
       }
-      else if (!PyString_Check(key))
+      else if (!PyBytes_Check(key))
       {
         key = PyObject_Str(key);
 #if PY_MAJOR_VERSION >= 3
@@ -589,9 +614,9 @@ int SortedDict_iterNext(JSOBJ obj, JSONTypeContext *tc)
     return 0;
   }
 
-  item = PyList_GET_ITEM(GET_TC(tc)->newObj, GET_TC(tc)->index);
-  GET_TC(tc)->itemName = PyTuple_GET_ITEM(item, 0);
-  GET_TC(tc)->itemValue = PyTuple_GET_ITEM(item, 1);
+  item = PyList_GetItem(GET_TC(tc)->newObj, GET_TC(tc)->index);
+  GET_TC(tc)->itemName = PyTuple_GetItem(item, 0);
+  GET_TC(tc)->itemValue = PyTuple_GetItem(item, 1);
   GET_TC(tc)->index++;
   return 1;
 
@@ -619,8 +644,8 @@ JSOBJ SortedDict_iterGetValue(JSOBJ obj, JSONTypeContext *tc)
 
 char *SortedDict_iterGetName(JSOBJ obj, JSONTypeContext *tc, size_t *outLen)
 {
-  *outLen = PyString_GET_SIZE(GET_TC(tc)->itemName);
-  return PyString_AS_STRING(GET_TC(tc)->itemName);
+  *outLen = PyBytes_Size(GET_TC(tc)->itemName);
+  return PyBytes_AsString(GET_TC(tc)->itemName);
 }
 
 
@@ -673,12 +698,6 @@ void Object_beginTypeContext (JSOBJ _obj, JSONTypeContext *tc, JSONObjectEncoder
   pc->longValue = 0;
   pc->rawJSONValue = NULL;
 
-  if (PyIter_Check(obj))
-  {
-    PRINTMARK();
-    goto ISITERABLE;
-  }
-
   if (PyBool_Check(obj))
   {
     PRINTMARK();
@@ -717,24 +736,6 @@ void Object_beginTypeContext (JSOBJ _obj, JSONTypeContext *tc, JSONObjectEncoder
     return;
   }
   else
-  if (PyInt_Check(obj))
-  {
-    PRINTMARK();
-#ifdef _LP64
-    pc->PyTypeToJSON = PyIntToINT64; tc->type = JT_LONG;
-#else
-    pc->PyTypeToJSON = PyIntToINT32; tc->type = JT_INT;
-#endif
-    return;
-  }
-  else
-  if (PyString_Check(obj) && !PyObject_HasAttrString(obj, "__json__"))
-  {
-    PRINTMARK();
-    pc->PyTypeToJSON = PyStringToUTF8; tc->type = JT_UTF8;
-    return;
-  }
-  else
   if (PyUnicode_Check(obj))
   {
     PRINTMARK();
@@ -742,24 +743,17 @@ void Object_beginTypeContext (JSOBJ _obj, JSONTypeContext *tc, JSONObjectEncoder
     return;
   }
   else
-  if (PyFloat_Check(obj) || (type_decimal && PyObject_IsInstance(obj, type_decimal)))
+  if (PyBytes_Check(obj) && !PyObject_HasAttrString(obj, "__json__"))
+  {
+    PRINTMARK();
+    pc->PyTypeToJSON = PyStringToUTF8; tc->type = JT_UTF8;
+    return;
+  }
+  else
+  if (PyFloat_Check(obj))
   {
     PRINTMARK();
     pc->PyTypeToJSON = PyFloatToDOUBLE; tc->type = JT_DOUBLE;
-    return;
-  }
-  else
-  if (PyDateTime_Check(obj))
-  {
-    PRINTMARK();
-    pc->PyTypeToJSON = PyDateTimeToINT64; tc->type = JT_LONG;
-    return;
-  }
-  else
-  if (PyDate_Check(obj))
-  {
-    PRINTMARK();
-    pc->PyTypeToJSON = PyDateToINT64; tc->type = JT_LONG;
     return;
   }
   else
@@ -769,8 +763,7 @@ void Object_beginTypeContext (JSOBJ _obj, JSONTypeContext *tc, JSONObjectEncoder
     tc->type = JT_NULL;
     return;
   }
-
-ISITERABLE:
+  else
   if (PyDict_Check(obj))
   {
     PRINTMARK();
@@ -789,7 +782,7 @@ ISITERABLE:
     pc->iterGetValue = List_iterGetValue;
     pc->iterGetName = List_iterGetName;
     GET_TC(tc)->index =  0;
-    GET_TC(tc)->size = PyList_GET_SIZE( (PyObject *) obj);
+    GET_TC(tc)->size = PyList_Size( (PyObject *) obj);
     return;
   }
   else
@@ -802,9 +795,30 @@ ISITERABLE:
     pc->iterGetValue = Tuple_iterGetValue;
     pc->iterGetName = Tuple_iterGetName;
     GET_TC(tc)->index = 0;
-    GET_TC(tc)->size = PyTuple_GET_SIZE( (PyObject *) obj);
+    GET_TC(tc)->size = PyTuple_Size( (PyObject *) obj);
     GET_TC(tc)->itemValue = NULL;
 
+    return;
+  }
+  else
+  if (object_is_decimal_type(obj)) {
+    // Same as Float
+    PRINTMARK();
+    pc->PyTypeToJSON = PyFloatToDOUBLE; tc->type = JT_DOUBLE;
+    return;
+  }
+  else
+  if (object_is_datetime_type(obj))
+  {
+    PRINTMARK();
+    pc->PyTypeToJSON = PyDateTimeToINT64; tc->type = JT_LONG;
+    return;
+  }
+  else
+  if (object_is_date_type(obj))
+  {
+    PRINTMARK();
+    pc->PyTypeToJSON = PyDateToINT64; tc->type = JT_LONG;
     return;
   }
   /*
@@ -867,7 +881,7 @@ ISITERABLE:
       goto INVALID;
     }
 
-    if (!PyString_Check(toJSONResult) && !PyUnicode_Check(toJSONResult))
+    if (!PyBytes_Check(toJSONResult) && !PyUnicode_Check(toJSONResult))
     {
       Py_DECREF(toJSONResult);
       PyErr_Format (PyExc_TypeError, "expected string");
@@ -912,7 +926,7 @@ ISITERABLE:
   }
 
   GET_TC(tc)->index = 0;
-  GET_TC(tc)->size = PyList_GET_SIZE(GET_TC(tc)->attrList);
+  GET_TC(tc)->size = PyList_Size(GET_TC(tc)->attrList);
   PRINTMARK();
   
   pc->iterEnd = Dir_iterEnd;
@@ -1083,7 +1097,7 @@ PyObject* objToJSON(PyObject* self, PyObject *args, PyObject *kwargs)
     return NULL;
   }
 
-  newobj = PyString_FromString (ret);
+  newobj = PyUnicode_FromString (ret);
 
   if (ret != buffer)
   {

@@ -34,7 +34,7 @@ module1 = Extension('ujson1',
                                './lib/ultrajsonenc.c', 
                                './lib/ultrajsondec.c'],
                     include_dirs = ['./python', './lib'],
-                    extra_compile_args=['-D_GNU_SOURCE'])
+                    extra_compile_args=['-D_GNU_SOURCE', '-DPy_LIMITED_API=0x03030000'])
 
 def get_version():
     filename = os.path.join(os.path.dirname(__file__), './python/version.h')

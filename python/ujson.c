@@ -36,12 +36,11 @@ http://www.opensource.apple.com/source/tcl/tcl-14/tcl/license.terms
 * Copyright (c) 1994 Sun Microsystems, Inc.
 */
 
-#include "py_defines.h"
+#include <Python.h>
 #include "version.h"
 
 /* objToJSON */
 PyObject* objToJSON(PyObject* self, PyObject *args, PyObject *kwargs);
-void initObjToJSON(void);
 
 /* JSONToObj */
 PyObject* JSONToObj(PyObject* self, PyObject *args, PyObject *kwargs);
@@ -65,46 +64,135 @@ static PyMethodDef ujsonMethods[] = {
   {NULL, NULL, 0, NULL}       /* Sentinel */
 };
 
-#if PY_MAJOR_VERSION >= 3
+typedef struct {
+  PyObject *type_date;
+  PyObject *type_datetime;
+  PyObject *type_decimal;
+} modulestate;
+
+static int module_traverse(PyObject *m, visitproc visit, void *arg);
+static int module_clear(PyObject *m);
+static void module_free(void *m);
 
 static struct PyModuleDef moduledef = {
   PyModuleDef_HEAD_INIT,
   "ujson1",
-  0,              /* m_doc */
-  -1,             /* m_size */
-  ujsonMethods,   /* m_methods */
-  NULL,           /* m_reload */
-  NULL,           /* m_traverse */
-  NULL,           /* m_clear */
-  NULL            /* m_free */
+  0,                    /* m_doc */
+  sizeof(modulestate),  /* m_size */
+  ujsonMethods,         /* m_methods */
+  NULL,                 /* m_reload */
+  module_traverse,      /* m_traverse */
+  module_clear,         /* m_clear */
+  module_free           /* m_free */
 };
 
-#define PYMODINITFUNC       PyObject *PyInit_ujson1(void)
-#define PYMODULE_CREATE()   PyModule_Create(&moduledef)
-#define MODINITERROR        return NULL
+#define modulestate(o) ((modulestate *)PyModule_GetState(o))
+#define modulestate_global modulestate(PyState_FindModule(&moduledef))
 
-#else
+/* Used in objToJSON.c */
+PyObject *PyDate_FromDate(int year, int month, int day)
+{
+  PyObject *date = modulestate_global->type_date;
+  assert(date != NULL);
+  return PyObject_CallFunction(date, "(iii)", year, month, day);
+}
+int object_is_datetime_type(PyObject *obj)
+{
+  assert(obj != NULL);
+  PyObject *datetime = modulestate_global->type_datetime;
+  assert(datetime != NULL);
+  return PyObject_IsInstance(obj, datetime);
+}
+int object_is_date_type(PyObject *obj)
+{
+  assert(obj != NULL);
+  PyObject *date = modulestate_global->type_date;
+  assert(date != NULL);
+  return PyObject_IsInstance(obj, date);
+}
+int object_is_decimal_type(PyObject *obj)
+{
+  PyObject *module = PyState_FindModule(&moduledef);
+  if (module == NULL) return 0;
+  modulestate *state = modulestate(module);
+  if (state == NULL) return 0;
+  int result = PyObject_IsInstance(obj, state->type_decimal);
+  if (result == -1) {
+    PyErr_Clear();
+    return 0;
+  }
+  return result;
+}
 
-#define PYMODINITFUNC       PyMODINIT_FUNC initujson1(void)
-#define PYMODULE_CREATE()   Py_InitModule("ujson1", ujsonMethods)
-#define MODINITERROR        return
+static int module_traverse(PyObject *m, visitproc visit, void *arg)
+{
+  Py_VISIT(modulestate(m)->type_date);
+  Py_VISIT(modulestate(m)->type_datetime);
+  Py_VISIT(modulestate(m)->type_decimal);
+  return 0;
+}
 
-#endif
+static int module_clear(PyObject *m)
+{
+  Py_CLEAR(modulestate(m)->type_date);
+  Py_CLEAR(modulestate(m)->type_datetime);
+  Py_CLEAR(modulestate(m)->type_decimal);
+  return 0;
+}
 
-PYMODINITFUNC
+static void module_free(void *m)
+{
+  module_clear((PyObject *)m);
+}
+
+PyMODINIT_FUNC PyInit_ujson1(void)
 {
   PyObject *module;
   PyObject *version_string;
+  PyObject *mod_decimal;
+  PyObject *mod_datetime;
+  modulestate *state;
 
-  initObjToJSON();
-  module = PYMODULE_CREATE();
+  if ((module = PyState_FindModule(&moduledef)) != NULL)
+  {
+    Py_INCREF(module);
+    return module;
+  }
+
+
+  module = PyModule_Create(&moduledef);
 
   if (module == NULL)
   {
-    MODINITERROR;
+    return NULL;
   }
 
-  version_string = PyString_FromString (UJSON_VERSION);
+  mod_decimal = PyImport_ImportModule("decimal");
+  if (mod_decimal != NULL)
+  {
+    state = modulestate(module);
+    state->type_decimal = PyObject_GetAttrString(mod_decimal, "Decimal");
+    assert(state->type_decimal != NULL);
+    Py_DECREF(mod_decimal);
+  }
+  else
+    PyErr_Clear();
+
+  mod_datetime = PyImport_ImportModule("datetime");
+  if (mod_datetime != NULL)
+  {
+    state = modulestate(module);
+    state->type_date = PyObject_GetAttrString(mod_datetime, "date");
+    assert(state->type_date != NULL);
+    state->type_datetime = PyObject_GetAttrString(mod_datetime, "datetime");
+    assert(state->type_datetime != NULL);
+    Py_DECREF(mod_datetime);
+  }
+  else
+    PyErr_Clear();
+
+
+  version_string = PyUnicode_FromString (UJSON_VERSION);
   PyModule_AddObject (module, "__version__", version_string);
 
 #if PY_MAJOR_VERSION >= 3
